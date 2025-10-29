@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Agora Video Meeting</title>
+<script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    margin: 30px;
+    background: #f8f8f8;
+  }
+  h2 { margin-bottom: 10px; }
+  #controls { margin-bottom: 10px; }
+  input, button {
+    padding: 8px 12px;
+    margin: 5px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  #video-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 15px;
+  }
+  video, div[id^="player-"], #local-player {
+    width: 300px;
+    height: 200px;
+    background: black;
+    border-radius: 8px;
+  }
+  #status {
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 6px;
+    background: #eee;
+  }
+  #status.success { background: #d1fae5; color: #065f46; }
+  #status.error { background: #fee2e2; color: #991b1b; }
+</style>
+</head>
+<body>
+  <h2>Agora Video Meeting</h2>
+
+  <div id="controls">
+    <input type="text" id="roomName" placeholder="Enter room name">
+    <button id="createMeeting">Create Meeting</button>
+    <button id="join" disabled>Join</button>
+    <button id="leave" disabled>Leave</button>
+  </div>
+
+  <div id="status">Ready to start</div>
+  <div id="video-container"></div>
+
+<script>
+const APP_ID = "b2e962fe791e4b23a34dee48010a733f"; // ✅ Replace with your Agora App ID
+let channelName = '';
+let client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+let localTracks = { videoTrack: null, audioTrack: null };
+let localPlayer;
+const createBtn = document.getElementById('createMeeting');
+const joinBtn = document.getElementById('join');
+const leaveBtn = document.getElementById('leave');
+const videoContainer = document.getElementById('video-container');
+const roomInput = document.getElementById('roomName');
+const statusBox = document.getElementById('status');
+
+// Helper function to update status box
+function setStatus(message, type = '') {
+  statusBox.textContent = message;
+  statusBox.className = type ? `status ${type}` : 'status';
+}
+
+// Create Meeting
+createBtn.onclick = () => {
+  channelName = roomInput.value.trim();
+  if (!channelName) return setStatus("⚠️ Enter a room name first!", "error");
+  setStatus(`✅ Meeting created! Share this room name: ${channelName}`, "success");
+  joinBtn.disabled = false;
+};
+
+// Join Meeting
+joinBtn.onclick = async () => {
+  joinBtn.disabled = true;
+  leaveBtn.disabled = false;
+
+  channelName = roomInput.value.trim();
+  if (!channelName) {
+    setStatus("⚠️ Please enter a room name.", "error");
+    joinBtn.disabled = false;
+    leaveBtn.disabled = true;
+    return;
+  }
+
+  try {
+    // ✅ Ask for browser permission first
+    setStatus("Requesting camera & microphone permission...");
+    await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+
+    setStatus("Joining Agora channel...");
+    await client.join(APP_ID, channelName, null, null);
+
+    // Create local tracks
+    setStatus("Accessing your camera and microphone...");
+    localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+    localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack();
+
+    // Display local video
+    localPlayer = document.createElement('div');
+    localPlayer.id = 'local-player';
+    videoContainer.appendChild(localPlayer);
+    localTracks.videoTrack.play(localPlayer);
+
+    // Publish to channel
+    await client.publish(Object.values(localTracks));
+    setStatus("✅ Joined meeting successfully!", "success");
+
+    // Handle remote users
+    client.on('user-published', async (user, mediaType) => {
+      await client.subscribe(user, mediaType);
+      if (mediaType === 'video') {
+        const remotePlayer = document.createElement('div');
+        remotePlayer.id = 'player-' + user.uid;
+        videoContainer.appendChild(remotePlayer);
+        user.videoTrack.play(remotePlayer);
+      }
+      if (mediaType === 'audio') user.audioTrack.play();
+    });
+
+    // Handle remote users leaving
+    client.on('user-unpublished', (user) => {
+      const player = document.getElementById('player-' + user.uid);
+      if (player) player.remove();
+    });
+
+  } catch (err) {
+    console.error("Join error:", err);
+    if (err.name === 'NotAllowedError') {
+      setStatus("❌ Camera or microphone access denied by system. Please allow permission and retry.", "error");
+    } else {
+      setStatus("❌ Failed to join: " + err.message, "error");
+    }
+    joinBtn.disabled = false;
+    leaveBtn.disabled = true;
+  }
+};
+
+// Leave Meeting
+leaveBtn.onclick = async () => {
+  setStatus("Leaving meeting...");
+  for (let track of Object.values(localTracks)) {
+    if (track) { track.stop(); track.close(); }
+  }
+  await client.leave();
+  videoContainer.innerHTML = '';
+  joinBtn.disabled = false;
+  leaveBtn.disabled = true;
+  setStatus("👋 You left the meeting", "success");
+};
+</script>
+</body>
+</html>
