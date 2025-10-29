@@ -30,13 +30,13 @@
   Ready to start
 </div>
 
-<!-- Video Container: scrollable on mobile, grid on larger screens -->
-<div id="video-container" class="flex flex-nowrap sm:flex-wrap sm:grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 w-full max-w-full pb-2 overflow-x-auto">
+<!-- Video Container: horizontal scroll -->
+<div id="video-container" class="flex flex-row flex-nowrap gap-2 w-full max-w-full pb-2 overflow-x-auto">
   <!-- Videos will be inserted here -->
 </div>
 
 <script>
-const APP_ID = "b2e962fe791e4b23a34dee48010a733f"; 
+const APP_ID = "b2e962fe791e4b23a34dee48010a733f";
 let client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 let localTracks = { videoTrack: null, audioTrack: null };
 let localPlayer;
@@ -78,26 +78,29 @@ startBtn.onclick = async () => {
     localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
     localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack();
 
-    // Local video
+    // Local video container
     localPlayer = document.createElement('div');
     localPlayer.id = 'local-player';
-    localPlayer.className = "flex-shrink-0 w-72 sm:w-full md:w-full aspect-video bg-black rounded-md";
+    localPlayer.className = "flex-shrink-0 w-72 aspect-video rounded-md overflow-hidden";
     videoContainer.appendChild(localPlayer);
-    localTracks.videoTrack.play(localPlayer);
 
+    // Play the local video track
+    await localTracks.videoTrack.play(localPlayer);
     await client.publish(Object.values(localTracks));
-    setStatus(`✅ Joined meeting: ${roomCode}`, "success");
 
+    setStatus(`✅ Joined meeting: ${roomCode}`, "success");
     startBtn.disabled = true;
     leaveBtn.disabled = false;
 
     // Handle remote users
     client.on('user-published', async (user, mediaType) => {
       await client.subscribe(user, mediaType);
+
       const player = document.createElement('div');
       player.id = 'player-' + user.uid;
-      player.className = "flex-shrink-0 w-72 sm:w-full md:w-full aspect-video bg-black rounded-md";
+      player.className = "flex-shrink-0 w-72 aspect-video rounded-md overflow-hidden";
       videoContainer.appendChild(player);
+
       if (mediaType === 'video') user.videoTrack.play(player);
       if (mediaType === 'audio') user.audioTrack.play();
     });
