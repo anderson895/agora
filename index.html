@@ -6,21 +6,21 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
 </head>
-<body class="bg-gray-100 min-h-screen flex flex-col items-center p-4">
+<body class="bg-gray-100 min-h-screen flex flex-col items-center p-2 sm:p-4">
 
-<h2 class="text-2xl font-bold mb-4 text-gray-800 text-center">Agora Video Meeting</h2>
+<h2 class="text-2xl sm:text-3xl font-bold mb-4 text-gray-800 text-center">Agora Video Meeting</h2>
 
 <!-- Controls -->
-<div id="controls" class="flex flex-col sm:flex-row gap-2 w-full max-w-xl mb-4">
+<div id="controls" class="flex flex-col sm:flex-row flex-wrap gap-2 w-full max-w-xl mb-4">
   <input type="text" id="roomCode" placeholder="Enter room code"
-         class="flex-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400">
-  <button id="startMeeting" class="bg-yellow-400 hover:bg-yellow-500 text-white font-semibold px-4 py-2 rounded-md">
+         class="flex-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 w-full sm:w-auto">
+  <button id="startMeeting" class="bg-yellow-400 hover:bg-yellow-500 text-white font-semibold px-4 py-2 rounded-md w-full sm:w-auto">
     Start / Join Meeting
   </button>
-  <button id="leave" disabled class="bg-red-500 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
+  <button id="leave" disabled class="bg-red-500 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto">
     Leave
   </button>
-  <button id="generateCode" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2 rounded-md">
+  <button id="generateCode" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2 rounded-md w-full sm:w-auto">
     Generate Code
   </button>
 </div>
@@ -30,8 +30,10 @@
   Ready to start
 </div>
 
-<!-- Video Container -->
-<div id="video-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 w-full max-w-6xl"></div>
+<!-- Video Container: scrollable on mobile, grid on larger screens -->
+<div id="video-container" class="flex flex-nowrap sm:flex-wrap sm:grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 w-full max-w-full pb-2 overflow-x-auto">
+  <!-- Videos will be inserted here -->
+</div>
 
 <script>
 const APP_ID = "b2e962fe791e4b23a34dee48010a733f"; 
@@ -79,7 +81,7 @@ startBtn.onclick = async () => {
     // Local video
     localPlayer = document.createElement('div');
     localPlayer.id = 'local-player';
-    localPlayer.className = "w-full aspect-video bg-black rounded-md";
+    localPlayer.className = "flex-shrink-0 w-72 sm:w-full md:w-full aspect-video bg-black rounded-md";
     videoContainer.appendChild(localPlayer);
     localTracks.videoTrack.play(localPlayer);
 
@@ -94,7 +96,7 @@ startBtn.onclick = async () => {
       await client.subscribe(user, mediaType);
       const player = document.createElement('div');
       player.id = 'player-' + user.uid;
-      player.className = "w-full aspect-video bg-black rounded-md";
+      player.className = "flex-shrink-0 w-72 sm:w-full md:w-full aspect-video bg-black rounded-md";
       videoContainer.appendChild(player);
       if (mediaType === 'video') user.videoTrack.play(player);
       if (mediaType === 'audio') user.audioTrack.play();
