@@ -6,40 +6,50 @@
 <title>Agora Video Meeting with Approval & Remove</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
-<script src="https://download.agora.io/sdk/release/AgoraRTM_N.js"></script>
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col items-center p-2 sm:p-4">
 
-<h2 class="text-2xl sm:text-3xl font-bold mb-4 text-gray-800 text-center">
-Agora Video Meeting (Join Approval & Remove)
-</h2>
+<h2 class="text-2xl sm:text-3xl font-bold mb-4 text-gray-800 text-center">Agora Video Meeting (Join Approval)</h2>
 
+<!-- Controls -->
 <div id="controls" class="flex flex-col sm:flex-row flex-wrap gap-2 w-full max-w-xl mb-4">
   <input type="text" id="roomCode" placeholder="Enter room code"
          class="flex-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 w-full sm:w-auto">
-  <button id="createMeeting" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2 rounded-md w-full sm:w-auto">Create Meeting</button>
-  <button id="joinMeeting" class="bg-yellow-400 hover:bg-yellow-500 text-white font-semibold px-4 py-2 rounded-md w-full sm:w-auto">Request Join</button>
-  <button id="leave" disabled class="bg-red-500 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto">Leave</button>
+
+  <button id="createMeeting" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2 rounded-md w-full sm:w-auto">
+    Create Meeting
+  </button>
+  <button id="joinMeeting" class="bg-yellow-400 hover:bg-yellow-500 text-white font-semibold px-4 py-2 rounded-md w-full sm:w-auto">
+    Request Join
+  </button>
+  <button id="leave" disabled class="bg-red-500 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto">
+    Leave
+  </button>
 </div>
 
-<div id="status" class="w-full max-w-xl p-2 mb-4 bg-gray-200 rounded-md text-gray-800 text-center">Ready to start</div>
+<!-- Status -->
+<div id="status" class="w-full max-w-xl p-2 mb-4 bg-gray-200 rounded-md text-gray-800 text-center">
+  Ready to start
+</div>
 
+<!-- Pending Requests (visible to creator) -->
 <div id="pendingRequests" class="w-full max-w-xl mb-4 hidden">
   <h3 class="font-semibold mb-2">Pending Join Requests:</h3>
   <ul id="requestsList" class="list-disc pl-5"></ul>
 </div>
 
-<div id="video-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 w-full max-w-full pb-2"></div>
+<!-- Video Container -->
+<div id="video-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 w-full max-w-full pb-2">
+</div>
 
 <script>
 const APP_ID = "b2e962fe791e4b23a34dee48010a733f";
 let client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-let rtmClient = AgoraRTM.createInstance(APP_ID);
-let rtmChannel;
 let localTracks = { videoTrack: null, audioTrack: null };
+let localPlayer;
 let isCreator = false;
-let approvalRequests = [];
-let username = "User_" + Math.floor(Math.random() * 1000);
+let approvalRequests = []; // { id: uid, name: 'User' } in real app use server or RTM
+let participants = {}; // track participants { uid: { name, videoTrack, audioTrack } }
 
 const createBtn = document.getElementById('createMeeting');
 const joinBtn = document.getElementById('joinMeeting');
@@ -50,22 +60,25 @@ const statusBox = document.getElementById('status');
 const pendingDiv = document.getElementById('pendingRequests');
 const requestsList = document.getElementById('requestsList');
 
-function setStatus(message, type=''){
+function setStatus(message, type = '') {
   statusBox.textContent = message;
-  if(type==='success') statusBox.className="w-full max-w-xl p-2 mb-4 bg-green-100 rounded-md text-green-700 text-center";
-  else if(type==='error') statusBox.className="w-full max-w-xl p-2 mb-4 bg-red-100 rounded-md text-red-700 text-center";
-  else statusBox.className="w-full max-w-xl p-2 mb-4 bg-gray-200 rounded-md text-gray-800 text-center";
+  if(type === "success") statusBox.className = "w-full max-w-xl p-2 mb-4 bg-green-100 rounded-md text-green-700 text-center";
+  else if(type === "error") statusBox.className = "w-full max-w-xl p-2 mb-4 bg-red-100 rounded-md text-red-700 text-center";
+  else statusBox.className = "w-full max-w-xl p-2 mb-4 bg-gray-200 rounded-md text-gray-800 text-center";
 }
 
-// Pending requests UI
-function updateRequestsUI(){
-  requestsList.innerHTML='';
-  if(approvalRequests.length===0){ pendingDiv.classList.add('hidden'); return; }
+// Show approval requests
+function updateRequestsUI() {
+  requestsList.innerHTML = '';
+  if (approvalRequests.length === 0) {
+    pendingDiv.classList.add('hidden');
+    return;
+  }
   pendingDiv.classList.remove('hidden');
-  approvalRequests.forEach((req,index)=>{
-    const li=document.createElement('li');
-    li.className="flex justify-between items-center mb-1";
-    li.innerHTML=`
+  approvalRequests.forEach((req, index) => {
+    const li = document.createElement('li');
+    li.className = "flex justify-between items-center mb-1";
+    li.innerHTML = `
       ${req.name || 'Anonymous'} 
       <span>
         <button class="bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded mr-1" onclick="approve(${index})">Approve</button>
@@ -76,157 +89,148 @@ function updateRequestsUI(){
   });
 }
 
-// Approve/reject
+// Approve join request
 window.approve = async (index) => {
   const req = approvalRequests[index];
-  approvalRequests.splice(index, 1);
+  approvalRequests.splice(index,1);
   updateRequestsUI();
   setStatus(`✅ Approved ${req.name}, joining meeting...`, 'success');
-  await joinMeeting(roomInput.value);
+  await joinMeeting(roomInput.value); // approved user joins
 }
 
+// Reject join request
 window.reject = (index) => {
   const req = approvalRequests[index];
-  approvalRequests.splice(index, 1);
+  approvalRequests.splice(index,1);
   updateRequestsUI();
   setStatus(`❌ Rejected ${req.name}`, 'error');
 }
 
-// Render participants
-function renderParticipants(){
-  videoContainer.innerHTML = '';
-  // Local video
-  if(localTracks.videoTrack){
-    let div=document.createElement('div');
-    div.id='local-player';
-    div.className="aspect-video rounded-md overflow-hidden relative";
-    videoContainer.appendChild(div);
-    localTracks.videoTrack.play(div);
-    if(isCreator){
-      const removeBtn=document.createElement('button');
-      removeBtn.textContent="Remove";
-      removeBtn.className="absolute top-2 right-2 bg-red-500 text-white px-2 py-1 rounded";
-      removeBtn.onclick=()=>alert("You can't remove yourself!");
-      div.appendChild(removeBtn);
-    }
+// Remove participant (creator only)
+window.disconnectMember = async (uid) => {
+  const confirmRemove = confirm("Are you sure you want to disconnect this member?");
+  if (!confirmRemove) return;
+  const player = document.getElementById('player-' + uid);
+  if (player) player.remove();
+  if (participants[uid]) {
+    if(participants[uid].videoTrack) participants[uid].videoTrack.stop();
+    if(participants[uid].audioTrack) participants[uid].audioTrack.stop();
   }
-  // Remote users
-  Object.values(client.remoteUsers).forEach(user=>{
-    const div=document.createElement('div');
-    div.id='player-'+user.uid;
-    div.className="aspect-video rounded-md overflow-hidden relative";
-    videoContainer.appendChild(div);
-    if(user.videoTrack) user.videoTrack.play(div);
-    if(user.audioTrack) user.audioTrack.play();
-    if(isCreator){
-      const removeBtn=document.createElement('button');
-      removeBtn.textContent="Remove";
-      removeBtn.className="absolute top-2 right-2 bg-red-500 text-white px-2 py-1 rounded";
-      removeBtn.onclick=()=>sendKick(user.uid);
-      div.appendChild(removeBtn);
-    }
-  });
+  delete participants[uid];
+  setStatus(`❌ Member disconnected`, 'error');
 }
 
-// Kick member via RTM
-function sendKick(uid){
-  if(!rtmChannel) return;
-  rtmChannel.sendMessage({text: JSON.stringify({type:'kick',uid})});
-  setStatus(`❌ Sent remove request to ${uid}`, 'error');
-}
-
-// Listen for kick messages
-async function setupRTM(channelName){
-  await rtmClient.login({uid: username});
-  rtmChannel = await rtmClient.createChannel(channelName);
-  await rtmChannel.join();
-  rtmChannel.on('ChannelMessage', (msg, event) => {
-    try{
-      const data = JSON.parse(msg.text);
-      if(data.type==='kick' && data.uid===username){
-        leaveMeeting();
-        alert("You were removed from the meeting by the creator.");
-      }
-    }catch(e){}
-  });
-}
-
-// Join meeting
-async function joinMeeting(roomCode){
-  try{
+// Function to join meeting
+async function joinMeeting(roomCode) {
+  try {
     setStatus("Requesting camera & microphone permission...");
-    const stream = await navigator.mediaDevices.getUserMedia({video:true, audio:true});
-    stream.getTracks().forEach(track=>track.stop());
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    stream.getTracks().forEach(track => track.stop());
 
-    client.on('user-published', async (user, mediaType)=>{
+    client.on('user-published', async (user, mediaType) => {
       await client.subscribe(user, mediaType);
-      renderParticipants();
+      if(!participants[user.uid]) participants[user.uid] = { name: 'Participant', videoTrack:null, audioTrack:null };
+      if (mediaType === 'video') {
+        participants[user.uid].videoTrack = user.videoTrack;
+      }
+      if (mediaType === 'audio') {
+        participants[user.uid].audioTrack = user.audioTrack;
+      }
+      let player = document.getElementById('player-' + user.uid);
+      if (!player) {
+        player = document.createElement('div');
+        player.id = 'player-' + user.uid;
+        player.className = "aspect-video rounded-md overflow-hidden relative";
+        if(isCreator){
+          const btn = document.createElement('button');
+          btn.textContent = "Disconnect";
+          btn.className = "absolute top-1 right-1 bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded text-xs";
+          btn.onclick = () => disconnectMember(user.uid);
+          player.appendChild(btn);
+        }
+        videoContainer.appendChild(player);
+      }
+      if (mediaType === 'video') user.videoTrack.play(player);
+      if (mediaType === 'audio') user.audioTrack.play();
     });
 
-    client.on('user-unpublished', user => renderParticipants());
+    client.on('user-unpublished', (user) => {
+      const player = document.getElementById('player-' + user.uid);
+      if (player) player.remove();
+      delete participants[user.uid];
+    });
 
-    await client.join(APP_ID, roomCode, null, null);
+    setStatus(`Joining room: ${roomCode}...`);
+    const uid = await client.join(APP_ID, roomCode, null, null);
+
     localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
     localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack();
+
+    localPlayer = document.getElementById('local-player');
+    if (!localPlayer) {
+      localPlayer = document.createElement('div');
+      localPlayer.id = 'local-player';
+      localPlayer.className = "aspect-video rounded-md overflow-hidden";
+      videoContainer.appendChild(localPlayer);
+    }
+    await localTracks.videoTrack.play(localPlayer);
     await client.publish(Object.values(localTracks));
-    renderParticipants();
 
-    await setupRTM(roomCode);
+    setStatus(`✅ Joined meeting: ${roomCode}`, "success");
+    joinBtn.disabled = true;
+    createBtn.disabled = true;
+    leaveBtn.disabled = false;
 
-    setStatus(`✅ Joined meeting: ${roomCode}`, 'success');
-    joinBtn.disabled=true;
-    createBtn.disabled=true;
-    leaveBtn.disabled=false;
-
-  }catch(err){
+  } catch (err) {
     console.error(err);
     Object.values(localTracks).forEach(track => { if(track){ track.stop(); track.close(); }});
-    setStatus("❌ Failed to join: "+err.message,'error');
-    joinBtn.disabled=false;
-    createBtn.disabled=false;
-    leaveBtn.disabled=true;
+    setStatus("❌ Failed to join meeting: " + err.message, "error");
+    joinBtn.disabled = false;
+    createBtn.disabled = false;
+    leaveBtn.disabled = true;
   }
 }
 
-// Leave meeting
-async function leaveMeeting(){
-  setStatus("Leaving meeting...");
-  for(let track of Object.values(localTracks)){ if(track){ track.stop(); track.close(); } }
-  await client.leave();
-  if(rtmChannel) await rtmChannel.leave();
-  videoContainer.innerHTML='';
-  localTracks = { videoTrack:null, audioTrack:null };
-  joinBtn.disabled=false;
-  createBtn.disabled=false;
-  leaveBtn.disabled=true;
-  setStatus("👋 You left the meeting", 'success');
-}
-
-// Create
-createBtn.onclick = async ()=>{
-  isCreator=true;
-  const code=Math.random().toString(36).substring(2,8).toUpperCase();
-  roomInput.value=code;
-  setStatus(`✅ Room created: ${code}`, 'success');
+// Create Meeting (auto-join & host)
+createBtn.onclick = async () => {
+  isCreator = true;
+  const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+  roomInput.value = code;
+  setStatus(`✅ Room created: ${code}`, "success");
   await joinMeeting(code);
-}
+};
 
-// Join
-joinBtn.onclick = ()=>{
+// Join Meeting (request approval)
+joinBtn.onclick = () => {
   const roomCode = roomInput.value.trim();
-  if(!roomCode) return setStatus("⚠️ Enter a room code first!", 'error');
-  if(isCreator) joinMeeting(roomCode);
-  else{
+  if (!roomCode) return setStatus("⚠️ Enter a room code first!", "error");
+
+  if (isCreator) {
+    // Creator joins directly
+    joinMeeting(roomCode);
+  } else {
+    // Non-creator sends request
     const name = prompt("Enter your name to request join:");
     if(!name) return;
-    approvalRequests.push({name});
+    approvalRequests.push({ name });
     updateRequestsUI();
-    setStatus("⚠️ Join request sent for approval", 'error');
+    setStatus(`⚠️ Join request sent for approval`, 'error');
   }
-}
+};
 
-// Leave
-leaveBtn.onclick = ()=>leaveMeeting();
+// Leave Meeting
+leaveBtn.onclick = async () => {
+  setStatus("Leaving meeting...");
+  for (let track of Object.values(localTracks)) { if(track){ track.stop(); track.close(); }}
+  await client.leave();
+  videoContainer.innerHTML = '';
+  localTracks = { videoTrack:null, audioTrack:null };
+  localPlayer = null;
+  joinBtn.disabled = false;
+  createBtn.disabled = false;
+  leaveBtn.disabled = true;
+  setStatus("👋 You left the meeting", "success");
+};
 </script>
 </body>
 </html>
