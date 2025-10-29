@@ -3,21 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Agora Video Meeting with Kick Member</title>
+<title>Agora Video Meeting with Approval & Remove</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
-<script src="https://unpkg.com/agora-rtm-sdk@1.6.0/index.js"></script>
+
+
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col items-center p-2 sm:p-4">
 
-<h2 class="text-2xl sm:text-3xl font-bold mb-4 text-gray-800 text-center">
-  Agora Video Meeting (Join Approval + Kick Member)
-</h2>
+<h2 class="text-2xl sm:text-3xl font-bold mb-4 text-gray-800 text-center">Agora Video Meeting (Join Approval)</h2>
 
 <!-- Controls -->
 <div id="controls" class="flex flex-col sm:flex-row flex-wrap gap-2 w-full max-w-xl mb-4">
   <input type="text" id="roomCode" placeholder="Enter room code"
          class="flex-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 w-full sm:w-auto">
+
   <button id="createMeeting" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2 rounded-md w-full sm:w-auto">
     Create Meeting
   </button>
@@ -34,57 +34,53 @@
   Ready to start
 </div>
 
-<!-- Pending Requests (for host) -->
+<!-- Pending Requests (visible to creator) -->
 <div id="pendingRequests" class="w-full max-w-xl mb-4 hidden">
   <h3 class="font-semibold mb-2">Pending Join Requests:</h3>
   <ul id="requestsList" class="list-disc pl-5"></ul>
 </div>
 
 <!-- Video Container -->
-<div id="video-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 w-full max-w-full pb-2"></div>
+<div id="video-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 w-full max-w-full pb-2">
+</div>
 
 <script>
 const APP_ID = "b2e962fe791e4b23a34dee48010a733f";
-let client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
-let rtmClient, rtmChannel;
-
+let client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 let localTracks = { videoTrack: null, audioTrack: null };
-let localPlayer, uid, roomCode;
+let localPlayer;
 let isCreator = false;
 let approvalRequests = [];
 
-const createBtn = document.getElementById("createMeeting");
-const joinBtn = document.getElementById("joinMeeting");
-const leaveBtn = document.getElementById("leave");
-const videoContainer = document.getElementById("video-container");
-const roomInput = document.getElementById("roomCode");
-const statusBox = document.getElementById("status");
-const pendingDiv = document.getElementById("pendingRequests");
-const requestsList = document.getElementById("requestsList");
+const createBtn = document.getElementById('createMeeting');
+const joinBtn = document.getElementById('joinMeeting');
+const leaveBtn = document.getElementById('leave');
+const videoContainer = document.getElementById('video-container');
+const roomInput = document.getElementById('roomCode');
+const statusBox = document.getElementById('status');
+const pendingDiv = document.getElementById('pendingRequests');
+const requestsList = document.getElementById('requestsList');
 
-function setStatus(message, type = "") {
+function setStatus(message, type = '') {
   statusBox.textContent = message;
-  if (type === "success")
-    statusBox.className = "w-full max-w-xl p-2 mb-4 bg-green-100 rounded-md text-green-700 text-center";
-  else if (type === "error")
-    statusBox.className = "w-full max-w-xl p-2 mb-4 bg-red-100 rounded-md text-red-700 text-center";
-  else
-    statusBox.className = "w-full max-w-xl p-2 mb-4 bg-gray-200 rounded-md text-gray-800 text-center";
+  if(type === "success") statusBox.className = "w-full max-w-xl p-2 mb-4 bg-green-100 rounded-md text-green-700 text-center";
+  else if(type === "error") statusBox.className = "w-full max-w-xl p-2 mb-4 bg-red-100 rounded-md text-red-700 text-center";
+  else statusBox.className = "w-full max-w-xl p-2 mb-4 bg-gray-200 rounded-md text-gray-800 text-center";
 }
 
-// Pending Requests UI
+// Pending requests UI
 function updateRequestsUI() {
-  requestsList.innerHTML = "";
+  requestsList.innerHTML = '';
   if (approvalRequests.length === 0) {
-    pendingDiv.classList.add("hidden");
+    pendingDiv.classList.add('hidden');
     return;
   }
-  pendingDiv.classList.remove("hidden");
+  pendingDiv.classList.remove('hidden');
   approvalRequests.forEach((req, index) => {
-    const li = document.createElement("li");
+    const li = document.createElement('li');
     li.className = "flex justify-between items-center mb-1";
     li.innerHTML = `
-      ${req.name || "Anonymous"}
+      ${req.name || 'Anonymous'} 
       <span>
         <button class="bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded mr-1" onclick="approve(${index})">Approve</button>
         <button class="bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded" onclick="reject(${index})">Reject</button>
@@ -96,150 +92,142 @@ function updateRequestsUI() {
 
 window.approve = async (index) => {
   const req = approvalRequests[index];
-  approvalRequests.splice(index, 1);
+  approvalRequests.splice(index,1);
   updateRequestsUI();
-  setStatus(`✅ Approved ${req.name}, joining meeting...`, "success");
+  setStatus(`✅ Approved ${req.name}, joining meeting...`, 'success');
   await joinMeeting(roomInput.value);
-};
+}
 
 window.reject = (index) => {
   const req = approvalRequests[index];
-  approvalRequests.splice(index, 1);
+  approvalRequests.splice(index,1);
   updateRequestsUI();
-  setStatus(`❌ Rejected ${req.name}`, "error");
-};
-
-// Initialize RTM
-async function initRTM(uid, roomCode) {
-  rtmClient = await AgoraRTM.createInstance(APP_ID);
-  await rtmClient.login({ uid: String(uid) });
-  rtmChannel = rtmClient.createChannel(roomCode);
-  await rtmChannel.join();
-
-  // Listen for "kick" messages
-  rtmClient.on("MessageFromPeer", async (msg, peerId) => {
-    if (msg.text === "KICK") {
-      alert("🚫 You have been removed by the host.");
-      await leaveMeeting();
-      location.reload();
-    }
-  });
+  setStatus(`❌ Rejected ${req.name}`, 'error');
 }
 
-// Join Meeting
-async function joinMeeting(room) {
+// Join Meeting function
+async function joinMeeting(roomCode) {
   try {
-    setStatus("Requesting camera & microphone...");
+    setStatus("Requesting camera & microphone permission...");
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    stream.getTracks().forEach((t) => t.stop());
+    stream.getTracks().forEach(track => track.stop());
 
-    client.on("user-published", async (user, mediaType) => {
+    client.on('user-published', async (user, mediaType) => {
       await client.subscribe(user, mediaType);
-      let player = document.getElementById("player-" + user.uid);
+      let player = document.getElementById('player-' + user.uid);
       if (!player) {
-        player = document.createElement("div");
-        player.id = "player-" + user.uid;
-        player.className = "aspect-video rounded-md overflow-hidden relative";
+        player = document.createElement('div');
+        player.id = 'player-' + user.uid;
+        player.className = "aspect-video rounded-md overflow-hidden relative"; // relative for button
         videoContainer.appendChild(player);
 
-        // Host can remove others
+        // Add Remove Member button if host
         if (isCreator) {
-          const removeBtn = document.createElement("button");
-          removeBtn.textContent = "Kick";
+          const removeBtn = document.createElement('button');
+          removeBtn.textContent = "Remove";
           removeBtn.className = "absolute top-2 left-2 bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded z-10";
-          removeBtn.onclick = () => kickMember(user.uid);
+          removeBtn.onclick = () => removeMember(user.uid);
           player.appendChild(removeBtn);
         }
       }
-      if (mediaType === "video") user.videoTrack.play(player);
-      if (mediaType === "audio") user.audioTrack.play();
+
+      if (mediaType === 'video') user.videoTrack.play(player);
+      if (mediaType === 'audio') user.audioTrack.play();
     });
 
-    client.on("user-unpublished", (user) => {
-      const player = document.getElementById("player-" + user.uid);
+    client.on('user-unpublished', (user) => {
+      const player = document.getElementById('player-' + user.uid);
       if (player) player.remove();
     });
 
-    setStatus(`Joining room: ${room}...`);
-    uid = await client.join(APP_ID, room, null, null);
-    await initRTM(uid, room);
+    setStatus(`Joining room: ${roomCode}...`);
+    const uid = await client.join(APP_ID, roomCode, null, null);
 
     localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
     localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack();
 
-    localPlayer = document.createElement("div");
-    localPlayer.id = "local-player";
-    localPlayer.className = "aspect-video rounded-md overflow-hidden relative";
-    videoContainer.appendChild(localPlayer);
+    localPlayer = document.getElementById('local-player');
+    if (!localPlayer) {
+      localPlayer = document.createElement('div');
+      localPlayer.id = 'local-player';
+      localPlayer.className = "aspect-video rounded-md overflow-hidden relative";
+      videoContainer.appendChild(localPlayer);
+    }
     await localTracks.videoTrack.play(localPlayer);
     await client.publish(Object.values(localTracks));
 
-    setStatus(`✅ Joined meeting: ${room}`, "success");
+    setStatus(`✅ Joined meeting: ${roomCode}`, "success");
     joinBtn.disabled = true;
     createBtn.disabled = true;
     leaveBtn.disabled = false;
+
   } catch (err) {
     console.error(err);
-    setStatus("❌ Join failed: " + err.message, "error");
+    Object.values(localTracks).forEach(track => { if(track){ track.stop(); track.close(); }});
+    setStatus("❌ Failed to join meeting: " + err.message, "error");
+    joinBtn.disabled = false;
+    createBtn.disabled = false;
+    leaveBtn.disabled = true;
   }
 }
 
-// Kick Member (RTM message)
-async function kickMember(targetUid) {
-  if (!rtmClient) return;
-  setStatus(`🚫 Kicking member ${targetUid}...`, "error");
-  await rtmClient.sendMessageToPeer({ text: "KICK" }, String(targetUid));
-  const player = document.getElementById("player-" + targetUid);
+// Remove member function (simulated)
+async function removeMember(uid) {
+  const player = document.getElementById('player-' + uid);
   if (player) player.remove();
-  setStatus(`⚠️ Member ${targetUid} was kicked.`, "error");
+  setStatus(`⚠️ Member ${uid} was removed by host`, 'error');
+
+  try {
+    const user = client.remoteUsers[uid];
+    if(user) {
+      user.audioTrack?.stop();
+      user.videoTrack?.stop();
+      user.videoTrack?.close();
+    }
+  } catch(err) {
+    console.warn("Failed to stop tracks:", err);
+  }
+
+  // In real implementation, send RTM message to user to leave meeting
 }
+
+// Create Meeting
+createBtn.onclick = async () => {
+  isCreator = true;
+  const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+  roomInput.value = code;
+  setStatus(`✅ Room created: ${code}`, "success");
+  await joinMeeting(code);
+};
+
+// Join Meeting (request approval)
+joinBtn.onclick = () => {
+  const roomCode = roomInput.value.trim();
+  if (!roomCode) return setStatus("⚠️ Enter a room code first!", "error");
+
+  if (isCreator) {
+    joinMeeting(roomCode);
+  } else {
+    const name = prompt("Enter your name to request join:");
+    if(!name) return;
+    approvalRequests.push({ name });
+    updateRequestsUI();
+    setStatus(`⚠️ Join request sent for approval`, 'error');
+  }
+};
 
 // Leave Meeting
-async function leaveMeeting() {
+leaveBtn.onclick = async () => {
   setStatus("Leaving meeting...");
-  for (let track of Object.values(localTracks)) {
-    if (track) {
-      track.stop();
-      track.close();
-    }
-  }
+  for (let track of Object.values(localTracks)) { if(track){ track.stop(); track.close(); }}
   await client.leave();
-  if (rtmChannel) await rtmChannel.leave();
-  if (rtmClient) await rtmClient.logout();
-
-  videoContainer.innerHTML = "";
-  localTracks = { videoTrack: null, audioTrack: null };
+  videoContainer.innerHTML = '';
+  localTracks = { videoTrack:null, audioTrack:null };
   localPlayer = null;
   joinBtn.disabled = false;
   createBtn.disabled = false;
   leaveBtn.disabled = true;
   setStatus("👋 You left the meeting", "success");
-}
-
-leaveBtn.onclick = leaveMeeting;
-
-// Create Meeting
-createBtn.onclick = async () => {
-  isCreator = true;
-  roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-  roomInput.value = roomCode;
-  setStatus(`✅ Room created: ${roomCode}`, "success");
-  await joinMeeting(roomCode);
-};
-
-// Join Meeting (request approval)
-joinBtn.onclick = () => {
-  roomCode = roomInput.value.trim();
-  if (!roomCode) return setStatus("⚠️ Enter a room code first!", "error");
-  if (isCreator) {
-    joinMeeting(roomCode);
-  } else {
-    const name = prompt("Enter your name to request join:");
-    if (!name) return;
-    approvalRequests.push({ name });
-    updateRequestsUI();
-    setStatus(`⚠️ Join request sent for approval`, "error");
-  }
 };
 </script>
 </body>
