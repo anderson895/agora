@@ -22,7 +22,7 @@
 
   <div id="controls">
     <input type="text" id="roomName" placeholder="Enter room name">
-    <button id="startMeeting">Start Meeting</button>
+    <button id="startMeeting">Start / Join Meeting</button>
     <button id="leave" disabled>Leave</button>
   </div>
 
@@ -45,19 +45,15 @@ function setStatus(message, type = '') {
   statusBox.className = type ? `status ${type}` : 'status';
 }
 
-// Start Meeting (Create + Join in one)
+// Start / Join Meeting
 startBtn.onclick = async () => {
   const channelName = roomInput.value.trim();
   if (!channelName) return setStatus("⚠️ Enter a room name first!", "error");
 
   try {
     setStatus("Requesting camera & microphone permission...");
-
-    // ✅ Ask for permission with a small hack to trigger prompt reliably
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    
-    // Stop tracks immediately; we'll create Agora tracks separately
-    stream.getTracks().forEach(track => track.stop());
+    stream.getTracks().forEach(track => track.stop()); // stop tracks immediately
 
     setStatus("Joining Agora channel...");
     await client.join(APP_ID, channelName, null, null);
@@ -72,9 +68,9 @@ startBtn.onclick = async () => {
     videoContainer.appendChild(localPlayer);
     localTracks.videoTrack.play(localPlayer);
 
-    // Publish tracks to Agora
+    // Publish local tracks
     await client.publish(Object.values(localTracks));
-    setStatus(`✅ Meeting started! Room: ${channelName}`, "success");
+    setStatus(`✅ Joined meeting: ${channelName}`, "success");
 
     startBtn.disabled = true;
     leaveBtn.disabled = false;
@@ -96,19 +92,15 @@ startBtn.onclick = async () => {
     });
 
   } catch (err) {
-    console.error("Error:", err);
-
-    // Stop any partially created tracks if error occurs
-    Object.values(localTracks).forEach(track => {
-      if (track) { track.stop(); track.close(); }
-    });
+    console.error(err);
+    Object.values(localTracks).forEach(track => { if (track) { track.stop(); track.close(); } });
 
     if (err.name === 'NotAllowedError') {
-      setStatus("❌ Camera or microphone access denied by system. Please allow permission.", "error");
+      setStatus("❌ Camera or microphone access denied.", "error");
     } else if (err.name === 'NotFoundError') {
       setStatus("❌ No camera or microphone found.", "error");
     } else {
-      setStatus("❌ Failed to start meeting: " + err.message, "error");
+      setStatus("❌ Failed to join meeting: " + err.message, "error");
     }
 
     startBtn.disabled = false;
