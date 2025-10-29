@@ -20,9 +20,6 @@
   <button id="leave" disabled class="bg-red-500 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto">
     Leave
   </button>
-  <button id="generateCode" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2 rounded-md w-full sm:w-auto">
-    Generate Code
-  </button>
 </div>
 
 <!-- Status -->
@@ -30,9 +27,9 @@
   Ready to start
 </div>
 
-<!-- Video Container: horizontal scroll -->
-<div id="video-container" class="flex flex-row flex-nowrap gap-2 w-full max-w-full pb-2 overflow-x-auto">
-  <!-- Videos will be inserted here -->
+<!-- Video Container -->
+<div id="video-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 w-full max-w-full pb-2">
+  <!-- Video elements go here -->
 </div>
 
 <script>
@@ -43,7 +40,6 @@ let localPlayer;
 
 const startBtn = document.getElementById('startMeeting');
 const leaveBtn = document.getElementById('leave');
-const generateBtn = document.getElementById('generateCode');
 const videoContainer = document.getElementById('video-container');
 const roomInput = document.getElementById('roomCode');
 const statusBox = document.getElementById('status');
@@ -55,13 +51,6 @@ function setStatus(message, type = '') {
   else statusBox.className = "w-full max-w-xl p-2 mb-4 bg-gray-200 rounded-md text-gray-800 text-center";
 }
 
-// Generate random room code
-generateBtn.onclick = () => {
-  const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-  roomInput.value = code;
-  setStatus(`Generated room code: ${code}`, "success");
-};
-
 // Start / Join Meeting
 startBtn.onclick = async () => {
   const roomCode = roomInput.value.trim();
@@ -72,34 +61,17 @@ startBtn.onclick = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     stream.getTracks().forEach(track => track.stop());
 
-    setStatus(`Joining room: ${roomCode}...`);
-    await client.join(APP_ID, roomCode, null, null);
-
-    localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
-    localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack();
-
-    // Local video container
-    localPlayer = document.createElement('div');
-    localPlayer.id = 'local-player';
-    localPlayer.className = "flex-shrink-0 w-72 aspect-video rounded-md overflow-hidden";
-    videoContainer.appendChild(localPlayer);
-
-    // Play the local video track
-    await localTracks.videoTrack.play(localPlayer);
-    await client.publish(Object.values(localTracks));
-
-    setStatus(`✅ Joined meeting: ${roomCode}`, "success");
-    startBtn.disabled = true;
-    leaveBtn.disabled = false;
-
-    // Handle remote users
+    // Register remote user events BEFORE joining
     client.on('user-published', async (user, mediaType) => {
       await client.subscribe(user, mediaType);
 
-      const player = document.createElement('div');
-      player.id = 'player-' + user.uid;
-      player.className = "flex-shrink-0 w-72 aspect-video rounded-md overflow-hidden";
-      videoContainer.appendChild(player);
+      let player = document.getElementById('player-' + user.uid);
+      if (!player) {
+        player = document.createElement('div');
+        player.id = 'player-' + user.uid;
+        player.className = "aspect-video rounded-md overflow-hidden";
+        videoContainer.appendChild(player);
+      }
 
       if (mediaType === 'video') user.videoTrack.play(player);
       if (mediaType === 'audio') user.audioTrack.play();
@@ -109,6 +81,47 @@ startBtn.onclick = async () => {
       const player = document.getElementById('player-' + user.uid);
       if (player) player.remove();
     });
+
+    setStatus(`Joining room: ${roomCode}...`);
+    const uid = await client.join(APP_ID, roomCode, null, null);
+
+    // Create local tracks
+    localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+    localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack();
+
+    // Local video container
+    localPlayer = document.getElementById('local-player');
+    if (!localPlayer) {
+      localPlayer = document.createElement('div');
+      localPlayer.id = 'local-player';
+      localPlayer.className = "aspect-video rounded-md overflow-hidden";
+      videoContainer.appendChild(localPlayer);
+    }
+    await localTracks.videoTrack.play(localPlayer);
+    await client.publish(Object.values(localTracks));
+
+    setStatus(`✅ Joined meeting: ${roomCode}`, "success");
+    startBtn.disabled = true;
+    leaveBtn.disabled = false;
+
+    // Subscribe to already-published users
+    const remoteUsers = client.remoteUsers;
+    for (let uid in remoteUsers) {
+      const user = remoteUsers[uid];
+      if (user.hasVideo) {
+        let player = document.getElementById('player-' + user.uid);
+        if (!player) {
+          player = document.createElement('div');
+          player.id = 'player-' + user.uid;
+          player.className = "aspect-video rounded-md overflow-hidden";
+          videoContainer.appendChild(player);
+        }
+        user.videoTrack.play(player);
+      }
+      if (user.hasAudio) {
+        user.audioTrack.play();
+      }
+    }
 
   } catch (err) {
     console.error(err);
@@ -128,7 +141,11 @@ leaveBtn.onclick = async () => {
   setStatus("Leaving meeting...");
   for (let track of Object.values(localTracks)) { if (track) { track.stop(); track.close(); } }
   await client.leave();
+
   videoContainer.innerHTML = '';
+  localTracks = { videoTrack: null, audioTrack: null };
+  localPlayer = null;
+
   startBtn.disabled = false;
   leaveBtn.disabled = true;
   setStatus("👋 You left the meeting", "success");
