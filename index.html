@@ -3,14 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Agora Video Meeting</title>
+<title>Agora Video Meeting with Approval</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col items-center p-2 sm:p-4">
 
-<h2 class="text-2xl sm:text-3xl font-bold mb-4 text-gray-800 text-center">Agora Video Meeting</h2>
+<h2 class="text-2xl sm:text-3xl font-bold mb-4 text-gray-800 text-center">Agora Video Meeting (Join Approval)</h2>
 
+<!-- Controls -->
 <div id="controls" class="flex flex-col sm:flex-row flex-wrap gap-2 w-full max-w-xl mb-4">
   <input type="text" id="roomCode" placeholder="Enter room code"
          class="flex-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 w-full sm:w-auto">
@@ -19,25 +20,35 @@
     Create Meeting
   </button>
   <button id="joinMeeting" class="bg-yellow-400 hover:bg-yellow-500 text-white font-semibold px-4 py-2 rounded-md w-full sm:w-auto">
-    Join Meeting
+    Request Join
   </button>
   <button id="leave" disabled class="bg-red-500 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto">
     Leave
   </button>
 </div>
 
+<!-- Status -->
 <div id="status" class="w-full max-w-xl p-2 mb-4 bg-gray-200 rounded-md text-gray-800 text-center">
   Ready to start
 </div>
 
-<div id="video-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 w-full max-w-full pb-2"></div>
+<!-- Pending Requests (visible to creator) -->
+<div id="pendingRequests" class="w-full max-w-xl mb-4 hidden">
+  <h3 class="font-semibold mb-2">Pending Join Requests:</h3>
+  <ul id="requestsList" class="list-disc pl-5"></ul>
+</div>
+
+<!-- Video Container -->
+<div id="video-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 w-full max-w-full pb-2">
+</div>
 
 <script>
 const APP_ID = "b2e962fe791e4b23a34dee48010a733f";
 let client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 let localTracks = { videoTrack: null, audioTrack: null };
 let localPlayer;
-let creatorUID = null; // store creator uid
+let isCreator = false;
+let approvalRequests = []; // { id: uid, name: 'User' } in real app use server or RTM
 
 const createBtn = document.getElementById('createMeeting');
 const joinBtn = document.getElementById('joinMeeting');
@@ -45,6 +56,8 @@ const leaveBtn = document.getElementById('leave');
 const videoContainer = document.getElementById('video-container');
 const roomInput = document.getElementById('roomCode');
 const statusBox = document.getElementById('status');
+const pendingDiv = document.getElementById('pendingRequests');
+const requestsList = document.getElementById('requestsList');
 
 function setStatus(message, type = '') {
   statusBox.textContent = message;
@@ -53,22 +66,48 @@ function setStatus(message, type = '') {
   else statusBox.className = "w-full max-w-xl p-2 mb-4 bg-gray-200 rounded-md text-gray-800 text-center";
 }
 
-// Simulated approval check
-async function requestApproval(roomCode) {
-  return new Promise((resolve) => {
-    const approved = confirm("The meeting creator must approve your request. Approve to join?");
-    resolve(approved);
+// Show approval requests
+function updateRequestsUI() {
+  requestsList.innerHTML = '';
+  if (approvalRequests.length === 0) {
+    pendingDiv.classList.add('hidden');
+    return;
+  }
+  pendingDiv.classList.remove('hidden');
+  approvalRequests.forEach((req, index) => {
+    const li = document.createElement('li');
+    li.className = "flex justify-between items-center mb-1";
+    li.innerHTML = `
+      ${req.name || 'Anonymous'} 
+      <span>
+        <button class="bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded mr-1" onclick="approve(${index})">Approve</button>
+        <button class="bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded" onclick="reject(${index})">Reject</button>
+      </span>
+    `;
+    requestsList.appendChild(li);
   });
 }
 
-// Function to join meeting
-async function joinMeeting(roomCode, isCreator = false) {
-  try {
-    if (!isCreator) {
-      const approved = await requestApproval(roomCode);
-      if (!approved) return setStatus("❌ Join request denied by the creator.", "error");
-    }
+// Approve join request
+window.approve = async (index) => {
+  const req = approvalRequests[index];
+  approvalRequests.splice(index,1);
+  updateRequestsUI();
+  setStatus(`✅ Approved ${req.name}, joining meeting...`, 'success');
+  await joinMeeting(roomInput.value); // approved user joins
+}
 
+// Reject join request
+window.reject = (index) => {
+  const req = approvalRequests[index];
+  approvalRequests.splice(index,1);
+  updateRequestsUI();
+  setStatus(`❌ Rejected ${req.name}`, 'error');
+}
+
+// Function to join meeting
+async function joinMeeting(roomCode) {
+  try {
     setStatus("Requesting camera & microphone permission...");
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     stream.getTracks().forEach(track => track.stop());
@@ -94,9 +133,6 @@ async function joinMeeting(roomCode, isCreator = false) {
     setStatus(`Joining room: ${roomCode}...`);
     const uid = await client.join(APP_ID, roomCode, null, null);
 
-    if (isCreator) creatorUID = uid;
-
-    // Local tracks
     localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
     localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack();
 
@@ -115,56 +151,50 @@ async function joinMeeting(roomCode, isCreator = false) {
     createBtn.disabled = true;
     leaveBtn.disabled = false;
 
-    const remoteUsers = client.remoteUsers;
-    for (let uid in remoteUsers) {
-      const user = remoteUsers[uid];
-      if (user.hasVideo) {
-        let player = document.getElementById('player-' + user.uid);
-        if (!player) {
-          player = document.createElement('div');
-          player.id = 'player-' + user.uid;
-          player.className = "aspect-video rounded-md overflow-hidden";
-          videoContainer.appendChild(player);
-        }
-        user.videoTrack.play(player);
-      }
-      if (user.hasAudio) user.audioTrack.play();
-    }
-
   } catch (err) {
     console.error(err);
-    Object.values(localTracks).forEach(track => { if (track) { track.stop(); track.close(); } });
-    if (err.name === 'NotAllowedError') setStatus("❌ Camera or microphone access denied.", "error");
-    else if (err.name === 'NotFoundError') setStatus("❌ No camera or microphone found.", "error");
-    else setStatus("❌ Failed to join meeting: " + err.message, "error");
+    Object.values(localTracks).forEach(track => { if(track){ track.stop(); track.close(); }});
+    setStatus("❌ Failed to join meeting: " + err.message, "error");
     joinBtn.disabled = false;
     createBtn.disabled = false;
     leaveBtn.disabled = true;
   }
 }
 
-// Create Meeting (auto-join as creator)
+// Create Meeting (auto-join & host)
 createBtn.onclick = async () => {
+  isCreator = true;
   const code = Math.random().toString(36).substring(2, 8).toUpperCase();
   roomInput.value = code;
   setStatus(`✅ Room created: ${code}`, "success");
-  await joinMeeting(code, true);
+  await joinMeeting(code);
 };
 
-// Join Meeting manually (requires approval)
+// Join Meeting (request approval)
 joinBtn.onclick = () => {
   const roomCode = roomInput.value.trim();
   if (!roomCode) return setStatus("⚠️ Enter a room code first!", "error");
-  joinMeeting(roomCode);
+
+  if (isCreator) {
+    // Creator joins directly
+    joinMeeting(roomCode);
+  } else {
+    // Non-creator sends request
+    const name = prompt("Enter your name to request join:");
+    if(!name) return;
+    approvalRequests.push({ name });
+    updateRequestsUI();
+    setStatus(`⚠️ Join request sent for approval`, 'error');
+  }
 };
 
 // Leave Meeting
 leaveBtn.onclick = async () => {
   setStatus("Leaving meeting...");
-  for (let track of Object.values(localTracks)) { if (track) { track.stop(); track.close(); } }
+  for (let track of Object.values(localTracks)) { if(track){ track.stop(); track.close(); }}
   await client.leave();
   videoContainer.innerHTML = '';
-  localTracks = { videoTrack: null, audioTrack: null };
+  localTracks = { videoTrack:null, audioTrack:null };
   localPlayer = null;
   joinBtn.disabled = false;
   createBtn.disabled = false;
