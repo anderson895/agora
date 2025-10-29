@@ -14,8 +14,13 @@
 <div id="controls" class="flex flex-col sm:flex-row flex-wrap gap-2 w-full max-w-xl mb-4">
   <input type="text" id="roomCode" placeholder="Enter room code"
          class="flex-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 w-full sm:w-auto">
-  <button id="startMeeting" class="bg-yellow-400 hover:bg-yellow-500 text-white font-semibold px-4 py-2 rounded-md w-full sm:w-auto">
-    Start / Join Meeting
+
+  <!-- Separate buttons -->
+  <button id="createMeeting" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2 rounded-md w-full sm:w-auto">
+    Create Meeting
+  </button>
+  <button id="joinMeeting" class="bg-yellow-400 hover:bg-yellow-500 text-white font-semibold px-4 py-2 rounded-md w-full sm:w-auto">
+    Join Meeting
   </button>
   <button id="leave" disabled class="bg-red-500 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto">
     Leave
@@ -38,7 +43,8 @@ let client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 let localTracks = { videoTrack: null, audioTrack: null };
 let localPlayer;
 
-const startBtn = document.getElementById('startMeeting');
+const createBtn = document.getElementById('createMeeting');
+const joinBtn = document.getElementById('joinMeeting');
 const leaveBtn = document.getElementById('leave');
 const videoContainer = document.getElementById('video-container');
 const roomInput = document.getElementById('roomCode');
@@ -51,8 +57,15 @@ function setStatus(message, type = '') {
   else statusBox.className = "w-full max-w-xl p-2 mb-4 bg-gray-200 rounded-md text-gray-800 text-center";
 }
 
-// Start / Join Meeting
-startBtn.onclick = async () => {
+// Create Meeting (generates room code)
+createBtn.onclick = () => {
+  const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+  roomInput.value = code;
+  setStatus(`✅ Room created: ${code}`, "success");
+};
+
+// Join Meeting
+joinBtn.onclick = async () => {
   const roomCode = roomInput.value.trim();
   if (!roomCode) return setStatus("⚠️ Enter a room code first!", "error");
 
@@ -61,7 +74,7 @@ startBtn.onclick = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     stream.getTracks().forEach(track => track.stop());
 
-    // Register remote user events BEFORE joining
+    // Remote user events
     client.on('user-published', async (user, mediaType) => {
       await client.subscribe(user, mediaType);
 
@@ -85,7 +98,7 @@ startBtn.onclick = async () => {
     setStatus(`Joining room: ${roomCode}...`);
     const uid = await client.join(APP_ID, roomCode, null, null);
 
-    // Create local tracks
+    // Local tracks
     localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
     localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack();
 
@@ -101,7 +114,8 @@ startBtn.onclick = async () => {
     await client.publish(Object.values(localTracks));
 
     setStatus(`✅ Joined meeting: ${roomCode}`, "success");
-    startBtn.disabled = true;
+    joinBtn.disabled = true;
+    createBtn.disabled = true;
     leaveBtn.disabled = false;
 
     // Subscribe to already-published users
@@ -131,7 +145,8 @@ startBtn.onclick = async () => {
     else if (err.name === 'NotFoundError') setStatus("❌ No camera or microphone found.", "error");
     else setStatus("❌ Failed to join meeting: " + err.message, "error");
 
-    startBtn.disabled = false;
+    joinBtn.disabled = false;
+    createBtn.disabled = false;
     leaveBtn.disabled = true;
   }
 };
@@ -146,7 +161,8 @@ leaveBtn.onclick = async () => {
   localTracks = { videoTrack: null, audioTrack: null };
   localPlayer = null;
 
-  startBtn.disabled = false;
+  joinBtn.disabled = false;
+  createBtn.disabled = false;
   leaveBtn.disabled = true;
   setStatus("👋 You left the meeting", "success");
 };
