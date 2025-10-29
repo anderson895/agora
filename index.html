@@ -3,38 +3,39 @@
 <head>
 <meta charset="UTF-8">
 <title>Agora Video Meeting</title>
+<script src="https://cdn.tailwindcss.com"></script>
 <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
-<style>
-  body { font-family: Arial, sans-serif; margin: 30px; background: #f8f8f8; }
-  h2 { margin-bottom: 10px; }
-  #controls { margin-bottom: 10px; }
-  input, button { padding: 8px 12px; margin: 5px; border-radius: 6px; border: 1px solid #ccc; }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  #video-container { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
-  video, div[id^="player-"], #local-player { width: 300px; height: 200px; background: black; border-radius: 8px; }
-  #status { margin-top: 10px; padding: 10px; border-radius: 6px; background: #eee; }
-  #status.success { background: #d1fae5; color: #065f46; }
-  #status.error { background: #fee2e2; color: #991b1b; }
-</style>
 </head>
-<body>
-<h2>Agora Video Meeting</h2>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center p-4">
 
-<div id="controls">
-  <input type="text" id="roomCode" placeholder="Enter room code">
-  <button id="startMeeting">Start / Join Meeting</button>
-  <button id="leave" disabled>Leave</button>
-  <button id="generateCode">Generate Room Code</button>
+<h2 class="text-2xl font-bold mb-4 text-gray-800">Agora Video Meeting</h2>
+
+<div id="controls" class="flex flex-col sm:flex-row gap-2 w-full max-w-xl mb-4">
+  <input type="text" id="roomCode" placeholder="Enter room code"
+         class="flex-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400">
+  <button id="startMeeting" class="bg-yellow-400 hover:bg-yellow-500 text-white font-semibold px-4 py-2 rounded-md">
+    Start / Join Meeting
+  </button>
+  <button id="leave" disabled class="bg-red-500 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
+    Leave
+  </button>
+  <button id="generateCode" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2 rounded-md">
+    Generate Code
+  </button>
 </div>
 
-<div id="status">Ready to start</div>
-<div id="video-container"></div>
+<div id="status" class="w-full max-w-xl p-2 mb-4 bg-gray-200 rounded-md text-gray-800 text-center">
+  Ready to start
+</div>
+
+<div id="video-container" class="flex flex-wrap justify-center gap-4 w-full max-w-6xl"></div>
 
 <script>
-const APP_ID = "b2e962fe791e4b23a34dee48010a733f"; // Agora App ID
+const APP_ID = "b2e962fe791e4b23a34dee48010a733f"; 
 let client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 let localTracks = { videoTrack: null, audioTrack: null };
 let localPlayer;
+
 const startBtn = document.getElementById('startMeeting');
 const leaveBtn = document.getElementById('leave');
 const generateBtn = document.getElementById('generateCode');
@@ -44,7 +45,9 @@ const statusBox = document.getElementById('status');
 
 function setStatus(message, type = '') {
   statusBox.textContent = message;
-  statusBox.className = type ? `status ${type}` : 'status';
+  if(type === "success") statusBox.className = "w-full max-w-xl p-2 mb-4 bg-green-100 rounded-md text-green-700 text-center";
+  else if(type === "error") statusBox.className = "w-full max-w-xl p-2 mb-4 bg-red-100 rounded-md text-red-700 text-center";
+  else statusBox.className = "w-full max-w-xl p-2 mb-4 bg-gray-200 rounded-md text-gray-800 text-center";
 }
 
 // Generate random room code
@@ -72,6 +75,7 @@ startBtn.onclick = async () => {
 
     localPlayer = document.createElement('div');
     localPlayer.id = 'local-player';
+    localPlayer.className = "w-72 h-48 bg-black rounded-md";
     videoContainer.appendChild(localPlayer);
     localTracks.videoTrack.play(localPlayer);
 
@@ -85,6 +89,7 @@ startBtn.onclick = async () => {
       await client.subscribe(user, mediaType);
       const player = document.createElement('div');
       player.id = 'player-' + user.uid;
+      player.className = "w-72 h-48 bg-black rounded-md";
       videoContainer.appendChild(player);
       if (mediaType === 'video') user.videoTrack.play(player);
       if (mediaType === 'audio') user.audioTrack.play();
