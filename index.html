@@ -11,7 +11,6 @@
 
 <h2 class="text-2xl sm:text-3xl font-bold mb-4 text-gray-800 text-center">Agora Video Meeting</h2>
 
-<!-- Controls -->
 <div id="controls" class="flex flex-col sm:flex-row flex-wrap gap-2 w-full max-w-xl mb-4">
   <input type="text" id="roomCode" placeholder="Enter room code"
          class="flex-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 w-full sm:w-auto">
@@ -27,20 +26,18 @@
   </button>
 </div>
 
-<!-- Status -->
 <div id="status" class="w-full max-w-xl p-2 mb-4 bg-gray-200 rounded-md text-gray-800 text-center">
   Ready to start
 </div>
 
-<!-- Video Container -->
-<div id="video-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 w-full max-w-full pb-2">
-</div>
+<div id="video-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 w-full max-w-full pb-2"></div>
 
 <script>
 const APP_ID = "b2e962fe791e4b23a34dee48010a733f";
 let client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 let localTracks = { videoTrack: null, audioTrack: null };
 let localPlayer;
+let creatorUID = null; // store creator uid
 
 const createBtn = document.getElementById('createMeeting');
 const joinBtn = document.getElementById('joinMeeting');
@@ -56,14 +53,26 @@ function setStatus(message, type = '') {
   else statusBox.className = "w-full max-w-xl p-2 mb-4 bg-gray-200 rounded-md text-gray-800 text-center";
 }
 
+// Simulated approval check
+async function requestApproval(roomCode) {
+  return new Promise((resolve) => {
+    const approved = confirm("The meeting creator must approve your request. Approve to join?");
+    resolve(approved);
+  });
+}
+
 // Function to join meeting
-async function joinMeeting(roomCode) {
+async function joinMeeting(roomCode, isCreator = false) {
   try {
+    if (!isCreator) {
+      const approved = await requestApproval(roomCode);
+      if (!approved) return setStatus("❌ Join request denied by the creator.", "error");
+    }
+
     setStatus("Requesting camera & microphone permission...");
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     stream.getTracks().forEach(track => track.stop());
 
-    // Remote user events
     client.on('user-published', async (user, mediaType) => {
       await client.subscribe(user, mediaType);
       let player = document.getElementById('player-' + user.uid);
@@ -85,11 +94,12 @@ async function joinMeeting(roomCode) {
     setStatus(`Joining room: ${roomCode}...`);
     const uid = await client.join(APP_ID, roomCode, null, null);
 
+    if (isCreator) creatorUID = uid;
+
     // Local tracks
     localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
     localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack();
 
-    // Local video container
     localPlayer = document.getElementById('local-player');
     if (!localPlayer) {
       localPlayer = document.createElement('div');
@@ -105,7 +115,6 @@ async function joinMeeting(roomCode) {
     createBtn.disabled = true;
     leaveBtn.disabled = false;
 
-    // Subscribe to already-published users
     const remoteUsers = client.remoteUsers;
     for (let uid in remoteUsers) {
       const user = remoteUsers[uid];
@@ -134,15 +143,15 @@ async function joinMeeting(roomCode) {
   }
 }
 
-// Create Meeting (auto-join)
+// Create Meeting (auto-join as creator)
 createBtn.onclick = async () => {
   const code = Math.random().toString(36).substring(2, 8).toUpperCase();
   roomInput.value = code;
   setStatus(`✅ Room created: ${code}`, "success");
-  await joinMeeting(code);
+  await joinMeeting(code, true);
 };
 
-// Join Meeting manually
+// Join Meeting manually (requires approval)
 joinBtn.onclick = () => {
   const roomCode = roomInput.value.trim();
   if (!roomCode) return setStatus("⚠️ Enter a room code first!", "error");
