@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Agora Video Meeting</title>
+<title>Agora Video Meeting with Join Approval</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
 </head>
@@ -26,6 +26,9 @@
   <button id="leave" disabled class="bg-red-500 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto">
     Leave
   </button>
+  <button id="approveNext" class="bg-green-500 hover:bg-green-600 text-white font-semibold px-4 py-2 rounded-md w-full sm:w-auto hidden">
+    Approve Next Join Request
+  </button>
 </div>
 
 <!-- Status -->
@@ -47,9 +50,14 @@ let localPlayer;
 const createBtn = document.getElementById('createMeeting');
 const joinBtn = document.getElementById('joinMeeting');
 const leaveBtn = document.getElementById('leave');
+const approveBtn = document.getElementById('approveNext');
+
 const videoContainer = document.getElementById('video-container');
 const roomInput = document.getElementById('roomCode');
 const statusBox = document.getElementById('status');
+
+let isCreator = false;
+let joinQueue = []; // users waiting for approval
 
 function setStatus(message, type = '') {
   statusBox.textContent = message;
@@ -58,11 +66,14 @@ function setStatus(message, type = '') {
   else statusBox.className = "w-full max-w-xl p-2 mb-4 bg-gray-200 rounded-md text-gray-800 text-center";
 }
 
-// Create Meeting (generates room code)
+// Create Meeting
 createBtn.onclick = () => {
   const code = Math.random().toString(36).substring(2, 8).toUpperCase();
   roomInput.value = code;
   setStatus(`✅ Room created: ${code}`, "success");
+  isCreator = true;
+  joinQueue = [];
+  approveBtn.classList.remove("hidden");
 };
 
 // Join Meeting
@@ -70,40 +81,38 @@ joinBtn.onclick = async () => {
   const roomCode = roomInput.value.trim();
   if (!roomCode) return setStatus("⚠️ Enter a room code first!", "error");
 
+  if (!isCreator) {
+    // Send request to join (simulated)
+    joinQueue.push({ uid: Math.floor(Math.random()*10000), room: roomCode });
+    alert("✅ Join request sent. Waiting for host approval.");
+    return;
+  }
+
+  await joinRoom(roomCode); // Creator can join directly
+};
+
+// Host approves next join request
+approveBtn.onclick = async () => {
+  if (joinQueue.length === 0) return alert("No pending join requests.");
+  const nextUser = joinQueue.shift();
+  alert(`Approved user ${nextUser.uid} for room ${nextUser.room}`);
+  // In a real app, notify the user via backend or WebSocket
+};
+
+// Function to join Agora room
+async function joinRoom(roomCode) {
   try {
     setStatus("Requesting camera & microphone permission...");
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     stream.getTracks().forEach(track => track.stop());
 
-    // Remote user events
-    client.on('user-published', async (user, mediaType) => {
-      await client.subscribe(user, mediaType);
-
-      let player = document.getElementById('player-' + user.uid);
-      if (!player) {
-        player = document.createElement('div');
-        player.id = 'player-' + user.uid;
-        player.className = "aspect-video rounded-md overflow-hidden";
-        videoContainer.appendChild(player);
-      }
-
-      if (mediaType === 'video') user.videoTrack.play(player);
-      if (mediaType === 'audio') user.audioTrack.play();
-    });
-
-    client.on('user-unpublished', (user) => {
-      const player = document.getElementById('player-' + user.uid);
-      if (player) player.remove();
-    });
-
-    setStatus(`Joining room: ${roomCode}...`);
     const uid = await client.join(APP_ID, roomCode, null, null);
 
     // Local tracks
     localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
     localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack();
 
-    // Local video container
+    // Local video
     localPlayer = document.getElementById('local-player');
     if (!localPlayer) {
       localPlayer = document.createElement('div');
@@ -119,49 +128,43 @@ joinBtn.onclick = async () => {
     createBtn.disabled = true;
     leaveBtn.disabled = false;
 
-    // Subscribe to already-published users
-    const remoteUsers = client.remoteUsers;
-    for (let uid in remoteUsers) {
-      const user = remoteUsers[uid];
-      if (user.hasVideo) {
-        let player = document.getElementById('player-' + user.uid);
-        if (!player) {
-          player = document.createElement('div');
-          player.id = 'player-' + user.uid;
-          player.className = "aspect-video rounded-md overflow-hidden";
-          videoContainer.appendChild(player);
-        }
-        user.videoTrack.play(player);
+    // Remote users
+    client.on('user-published', async (user, mediaType) => {
+      await client.subscribe(user, mediaType);
+      let player = document.getElementById('player-' + user.uid);
+      if (!player) {
+        player = document.createElement('div');
+        player.id = 'player-' + user.uid;
+        player.className = "aspect-video rounded-md overflow-hidden";
+        videoContainer.appendChild(player);
       }
-      if (user.hasAudio) {
-        user.audioTrack.play();
-      }
-    }
+      if (mediaType === 'video') user.videoTrack.play(player);
+      if (mediaType === 'audio') user.audioTrack.play();
+    });
+
+    client.on('user-unpublished', (user) => {
+      const player = document.getElementById('player-' + user.uid);
+      if (player) player.remove();
+    });
 
   } catch (err) {
     console.error(err);
     Object.values(localTracks).forEach(track => { if (track) { track.stop(); track.close(); } });
-
-    if (err.name === 'NotAllowedError') setStatus("❌ Camera or microphone access denied.", "error");
-    else if (err.name === 'NotFoundError') setStatus("❌ No camera or microphone found.", "error");
-    else setStatus("❌ Failed to join meeting: " + err.message, "error");
-
+    setStatus("❌ Failed to join meeting: " + err.message, "error");
     joinBtn.disabled = false;
     createBtn.disabled = false;
     leaveBtn.disabled = true;
   }
-};
+}
 
 // Leave Meeting
 leaveBtn.onclick = async () => {
   setStatus("Leaving meeting...");
   for (let track of Object.values(localTracks)) { if (track) { track.stop(); track.close(); } }
   await client.leave();
-
   videoContainer.innerHTML = '';
   localTracks = { videoTrack: null, audioTrack: null };
   localPlayer = null;
-
   joinBtn.disabled = false;
   createBtn.disabled = false;
   leaveBtn.disabled = true;
