@@ -18,26 +18,28 @@
 </style>
 </head>
 <body>
-  <h2>Agora Video Meeting</h2>
+<h2>Agora Video Meeting</h2>
 
-  <div id="controls">
-    <input type="text" id="roomName" placeholder="Enter room name">
-    <button id="startMeeting">Start / Join Meeting</button>
-    <button id="leave" disabled>Leave</button>
-  </div>
+<div id="controls">
+  <input type="text" id="roomCode" placeholder="Enter room code">
+  <button id="startMeeting">Start / Join Meeting</button>
+  <button id="leave" disabled>Leave</button>
+  <button id="generateCode">Generate Room Code</button>
+</div>
 
-  <div id="status">Ready to start</div>
-  <div id="video-container"></div>
+<div id="status">Ready to start</div>
+<div id="video-container"></div>
 
 <script>
-const APP_ID = "b2e962fe791e4b23a34dee48010a733f"; // Your Agora App ID
+const APP_ID = "b2e962fe791e4b23a34dee48010a733f"; // Agora App ID
 let client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
 let localTracks = { videoTrack: null, audioTrack: null };
 let localPlayer;
 const startBtn = document.getElementById('startMeeting');
 const leaveBtn = document.getElementById('leave');
+const generateBtn = document.getElementById('generateCode');
 const videoContainer = document.getElementById('video-container');
-const roomInput = document.getElementById('roomName');
+const roomInput = document.getElementById('roomCode');
 const statusBox = document.getElementById('status');
 
 function setStatus(message, type = '') {
@@ -45,37 +47,40 @@ function setStatus(message, type = '') {
   statusBox.className = type ? `status ${type}` : 'status';
 }
 
+// Generate random room code
+generateBtn.onclick = () => {
+  const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+  roomInput.value = code;
+  setStatus(`Generated room code: ${code}`, "success");
+};
+
 // Start / Join Meeting
 startBtn.onclick = async () => {
-  const channelName = roomInput.value.trim();
-  if (!channelName) return setStatus("⚠️ Enter a room name first!", "error");
+  const roomCode = roomInput.value.trim();
+  if (!roomCode) return setStatus("⚠️ Enter a room code first!", "error");
 
   try {
     setStatus("Requesting camera & microphone permission...");
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    stream.getTracks().forEach(track => track.stop()); // stop tracks immediately
+    stream.getTracks().forEach(track => track.stop());
 
-    setStatus("Joining Agora channel...");
-    await client.join(APP_ID, channelName, null, null);
+    setStatus(`Joining room: ${roomCode}...`);
+    await client.join(APP_ID, roomCode, null, null);
 
-    setStatus("Accessing your camera and microphone...");
     localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
     localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack();
 
-    // Display local video
     localPlayer = document.createElement('div');
     localPlayer.id = 'local-player';
     videoContainer.appendChild(localPlayer);
     localTracks.videoTrack.play(localPlayer);
 
-    // Publish local tracks
     await client.publish(Object.values(localTracks));
-    setStatus(`✅ Joined meeting: ${channelName}`, "success");
+    setStatus(`✅ Joined meeting: ${roomCode}`, "success");
 
     startBtn.disabled = true;
     leaveBtn.disabled = false;
 
-    // Handle remote users joining
     client.on('user-published', async (user, mediaType) => {
       await client.subscribe(user, mediaType);
       const player = document.createElement('div');
@@ -85,7 +90,6 @@ startBtn.onclick = async () => {
       if (mediaType === 'audio') user.audioTrack.play();
     });
 
-    // Handle remote users leaving
     client.on('user-unpublished', (user) => {
       const player = document.getElementById('player-' + user.uid);
       if (player) player.remove();
@@ -95,13 +99,9 @@ startBtn.onclick = async () => {
     console.error(err);
     Object.values(localTracks).forEach(track => { if (track) { track.stop(); track.close(); } });
 
-    if (err.name === 'NotAllowedError') {
-      setStatus("❌ Camera or microphone access denied.", "error");
-    } else if (err.name === 'NotFoundError') {
-      setStatus("❌ No camera or microphone found.", "error");
-    } else {
-      setStatus("❌ Failed to join meeting: " + err.message, "error");
-    }
+    if (err.name === 'NotAllowedError') setStatus("❌ Camera or microphone access denied.", "error");
+    else if (err.name === 'NotFoundError') setStatus("❌ No camera or microphone found.", "error");
+    else setStatus("❌ Failed to join meeting: " + err.message, "error");
 
     startBtn.disabled = false;
     leaveBtn.disabled = true;
@@ -111,9 +111,7 @@ startBtn.onclick = async () => {
 // Leave Meeting
 leaveBtn.onclick = async () => {
   setStatus("Leaving meeting...");
-  for (let track of Object.values(localTracks)) {
-    if (track) { track.stop(); track.close(); }
-  }
+  for (let track of Object.values(localTracks)) { if (track) { track.stop(); track.close(); } }
   await client.leave();
   videoContainer.innerHTML = '';
   startBtn.disabled = false;
