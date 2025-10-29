@@ -10,12 +10,13 @@
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col items-center p-2 sm:p-4">
 
-<h2 class="text-2xl sm:text-3xl font-bold mb-4 text-gray-800 text-center">Agora Video Meeting (Join Approval & Remove)</h2>
+<h2 class="text-2xl sm:text-3xl font-bold mb-4 text-gray-800 text-center">Agora Video Meeting (Join Approval)</h2>
 
 <!-- Controls -->
 <div id="controls" class="flex flex-col sm:flex-row flex-wrap gap-2 w-full max-w-xl mb-4">
   <input type="text" id="roomCode" placeholder="Enter room code"
          class="flex-1 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 w-full sm:w-auto">
+
   <button id="createMeeting" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-4 py-2 rounded-md w-full sm:w-auto">
     Create Meeting
   </button>
@@ -27,33 +28,30 @@
   </button>
 </div>
 
-<!-- Status -->
 <div id="status" class="w-full max-w-xl p-2 mb-4 bg-gray-200 rounded-md text-gray-800 text-center">
   Ready to start
 </div>
 
-<!-- Pending Requests (visible to creator) -->
 <div id="pendingRequests" class="w-full max-w-xl mb-4 hidden">
   <h3 class="font-semibold mb-2">Pending Join Requests:</h3>
   <ul id="requestsList" class="list-disc pl-5"></ul>
 </div>
 
-<!-- Video Container -->
 <div id="video-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 w-full max-w-full pb-2">
 </div>
 
 <script>
 const APP_ID = "b2e962fe791e4b23a34dee48010a733f";
+
 let client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
-let localTracks = { videoTrack: null, audioTrack: null };
+let rtmClient = null;
+let rtmChannel = null;
+let localTracks = { videoTrack:null, audioTrack:null };
 let localPlayer;
 let isCreator = false;
-let approvalRequests = [];
-let rtmClient;
-let rtmChannel;
-let localUid;
+let approvalRequests = []; // { name, rtmUid } in real app, RTM UIDs used
+let userRtmUid = Math.floor(Math.random()*1000000).toString(); // unique RTM UID for this user
 
-// DOM elements
 const createBtn = document.getElementById('createMeeting');
 const joinBtn = document.getElementById('joinMeeting');
 const leaveBtn = document.getElementById('leave');
@@ -63,25 +61,22 @@ const statusBox = document.getElementById('status');
 const pendingDiv = document.getElementById('pendingRequests');
 const requestsList = document.getElementById('requestsList');
 
-function setStatus(message, type = '') {
-  statusBox.textContent = message;
-  if(type === "success") statusBox.className = "w-full max-w-xl p-2 mb-4 bg-green-100 rounded-md text-green-700 text-center";
-  else if(type === "error") statusBox.className = "w-full max-w-xl p-2 mb-4 bg-red-100 rounded-md text-red-700 text-center";
-  else statusBox.className = "w-full max-w-xl p-2 mb-4 bg-gray-200 rounded-md text-gray-800 text-center";
+function setStatus(msg, type='') {
+  statusBox.textContent = msg;
+  if(type==="success") statusBox.className="w-full max-w-xl p-2 mb-4 bg-green-100 rounded-md text-green-700 text-center";
+  else if(type==="error") statusBox.className="w-full max-w-xl p-2 mb-4 bg-red-100 rounded-md text-red-700 text-center";
+  else statusBox.className="w-full max-w-xl p-2 mb-4 bg-gray-200 rounded-md text-gray-800 text-center";
 }
 
-// Show approval requests
+// Pending requests UI
 function updateRequestsUI() {
-  requestsList.innerHTML = '';
-  if (approvalRequests.length === 0) {
-    pendingDiv.classList.add('hidden');
-    return;
-  }
+  requestsList.innerHTML='';
+  if(approvalRequests.length===0){ pendingDiv.classList.add('hidden'); return; }
   pendingDiv.classList.remove('hidden');
-  approvalRequests.forEach((req, index) => {
-    const li = document.createElement('li');
-    li.className = "flex justify-between items-center mb-1";
-    li.innerHTML = `
+  approvalRequests.forEach((req,index)=>{
+    const li=document.createElement('li');
+    li.className="flex justify-between items-center mb-1";
+    li.innerHTML=`
       ${req.name || 'Anonymous'} 
       <span>
         <button class="bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded mr-1" onclick="approve(${index})">Approve</button>
@@ -92,145 +87,127 @@ function updateRequestsUI() {
   });
 }
 
-// Approve join request
 window.approve = async (index) => {
   const req = approvalRequests[index];
   approvalRequests.splice(index,1);
   updateRequestsUI();
-  setStatus(`✅ Approved ${req.name}, joining meeting...`, 'success');
-  await joinMeeting(roomInput.value);
-}
+  setStatus(`✅ Approved ${req.name}`);
+  // send message to participant to join
+  if(rtmClient) rtmClient.sendMessageToPeer({text:"approved"}, req.rtmUid);
+};
 
-// Reject join request
 window.reject = (index) => {
   const req = approvalRequests[index];
   approvalRequests.splice(index,1);
   updateRequestsUI();
   setStatus(`❌ Rejected ${req.name}`, 'error');
-}
+  if(rtmClient) rtmClient.sendMessageToPeer({text:"rejected"}, req.rtmUid);
+};
 
-// Initialize RTM for signaling
-async function initRTM(roomCode, uid) {
-  rtmClient = await AgoraRTM.createInstance(APP_ID);
-  await rtmClient.login({ uid: uid.toString() });
-  rtmChannel = await rtmClient.createChannel(roomCode);
-  await rtmChannel.join();
-
-  // Listen for "force-leave" messages
-  rtmClient.on('MessageFromPeer', ({ text }, peerId) => {
-    if(text === 'force-leave') {
-      leaveMeeting();
-      alert("⚠️ You were removed from the meeting by the host");
-    }
-  });
-}
-
-// Function to join meeting
+// Join Meeting
 async function joinMeeting(roomCode) {
   try {
     setStatus("Requesting camera & microphone permission...");
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    stream.getTracks().forEach(track => track.stop());
+    const stream = await navigator.mediaDevices.getUserMedia({ video:true,audio:true });
+    stream.getTracks().forEach(track=>track.stop());
 
-    client.on('user-published', async (user, mediaType) => {
-      await client.subscribe(user, mediaType);
-      let player = document.getElementById('player-' + user.uid);
-      if (!player) {
-        player = document.createElement('div');
-        player.id = 'player-' + user.uid;
-        player.className = "aspect-video rounded-md overflow-hidden relative";
-        videoContainer.appendChild(player);
-
-        // Add remove button if host
-        if(isCreator && user.uid !== localUid){
-          const removeBtn = document.createElement('button');
-          removeBtn.textContent = "Remove";
-          removeBtn.className = "absolute top-2 left-2 bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded z-10";
-          removeBtn.onclick = () => removeMember(user.uid);
-          player.appendChild(removeBtn);
-        }
+    // RTM setup
+    rtmClient = await AgoraRTM.createInstance(APP_ID);
+    await rtmClient.login({uid:userRtmUid});
+    rtmClient.on('MessageFromPeer', async ({text},peerId)=>{
+      if(text==="force-leave"){
+        alert("⚠️ You were removed by host");
+        await leaveMeeting();
       }
-      if (mediaType === 'video') user.videoTrack.play(player);
-      if (mediaType === 'audio') user.audioTrack.play();
+      if(text==="approved"){
+        setStatus("✅ Your join request approved, joining meeting...", "success");
+        joinBtn.disabled = true;
+        await rtcJoin(roomCode);
+      }
+      if(text==="rejected"){
+        setStatus("❌ Your join request was rejected", "error");
+      }
     });
 
-    client.on('user-unpublished', (user) => {
-      const player = document.getElementById('player-' + user.uid);
-      if(player) player.remove();
-    });
-
-    setStatus(`Joining room: ${roomCode}...`);
-    localUid = await client.join(APP_ID, roomCode, null, null);
-
-    // Init RTM for signaling
-    await initRTM(roomCode, localUid);
-
-    localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
-    localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack();
-
-    localPlayer = document.getElementById('local-player');
-    if (!localPlayer) {
-      localPlayer = document.createElement('div');
-      localPlayer.id = 'local-player';
-      localPlayer.className = "aspect-video rounded-md overflow-hidden relative";
-      videoContainer.appendChild(localPlayer);
+    if(isCreator){
+      // join channel as host
+      await rtcJoin(roomCode);
     }
-    await localTracks.videoTrack.play(localPlayer);
-    await client.publish(Object.values(localTracks));
 
-    setStatus(`✅ Joined meeting: ${roomCode}`, "success");
-    joinBtn.disabled = true;
-    createBtn.disabled = true;
-    leaveBtn.disabled = false;
-
-  } catch (err) {
-    console.error(err);
-    Object.values(localTracks).forEach(track => { if(track){ track.stop(); track.close(); }});
-    setStatus("❌ Failed to join meeting: " + err.message, "error");
-    joinBtn.disabled = false;
-    createBtn.disabled = false;
-    leaveBtn.disabled = true;
-  }
-}
-
-// Host removes member (force leave)
-async function removeMember(uid){
-  const player = document.getElementById('player-'+uid);
-  if(player) player.remove();
-  setStatus(`⚠️ Member ${uid} was removed by host`, 'error');
-
-  try {
-    const user = client.remoteUsers[uid];
-    if(user){
-      user.audioTrack?.stop();
-      user.videoTrack?.stop();
-      user.videoTrack?.close();
-    }
-    if(rtmClient){
-      await rtmClient.sendMessageToPeer({ text: 'force-leave' }, uid.toString());
-    }
   } catch(err){
-    console.warn("Failed to stop tracks or send leave:", err);
+    console.error(err);
+    setStatus("❌ Failed: "+err.message,"error");
   }
 }
 
-// Leave meeting
-async function leaveMeeting(){
-  setStatus("Leaving meeting...");
-  for(let track of Object.values(localTracks)){ if(track){ track.stop(); track.close(); }}
-  await client.leave();
-  if(rtmChannel) await rtmChannel.leave();
-  if(rtmClient) await rtmClient.logout();
-  videoContainer.innerHTML = '';
-  localTracks = { videoTrack:null, audioTrack:null };
-  localPlayer = null;
-  joinBtn.disabled = false;
-  createBtn.disabled = false;
-  leaveBtn.disabled = true;
-  setStatus("👋 You left the meeting", "success");
+async function rtcJoin(roomCode){
+  client.on('user-published', async (user, mediaType) => {
+    await client.subscribe(user, mediaType);
+    let player = document.getElementById('player-'+user.uid);
+    if(!player){
+      player = document.createElement('div');
+      player.id = 'player-'+user.uid;
+      player.className="aspect-video rounded-md overflow-hidden relative";
+      videoContainer.appendChild(player);
+
+      if(isCreator){
+        const removeBtn=document.createElement('button');
+        removeBtn.textContent="Remove";
+        removeBtn.className="absolute top-2 left-2 bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded z-10";
+        removeBtn.onclick=()=>forceRemove(user.uid);
+        player.appendChild(removeBtn);
+      }
+    }
+    if(mediaType==='video') user.videoTrack.play(player);
+    if(mediaType==='audio') user.audioTrack.play();
+  });
+
+  client.on('user-unpublished',(user)=>{
+    const player=document.getElementById('player-'+user.uid);
+    if(player) player.remove();
+  });
+
+  setStatus(`Joining room: ${roomCode}...`);
+  const uid = await client.join(APP_ID, roomCode, null, null);
+  localTracks.audioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+  localTracks.videoTrack = await AgoraRTC.createCameraVideoTrack();
+
+  localPlayer = document.getElementById('local-player');
+  if(!localPlayer){
+    localPlayer=document.createElement('div');
+    localPlayer.id='local-player';
+    localPlayer.className="aspect-video rounded-md overflow-hidden relative";
+    videoContainer.appendChild(localPlayer);
+  }
+  await localTracks.videoTrack.play(localPlayer);
+  await client.publish(Object.values(localTracks));
+
+  setStatus(`✅ Joined meeting: ${roomCode}`, "success");
+  joinBtn.disabled=true; createBtn.disabled=true; leaveBtn.disabled=false;
 }
 
-// Create Meeting (auto-join & host)
+// Force remove participant (host)
+async function forceRemove(uid){
+  const player=document.getElementById('player-'+uid);
+  if(player) player.remove();
+
+  const user = client.remoteUsers[uid];
+  if(user){
+    user.audioTrack?.stop();
+    user.videoTrack?.stop();
+    user.videoTrack?.close();
+  }
+
+  // send RTM message to participant to leave
+  const peer = approvalRequests.find(x=>x.uid===uid);
+  if(peer && rtmClient){
+    await rtmClient.sendMessageToPeer({text:"force-leave"}, peer.rtmUid);
+  }
+
+  setStatus(`⚠️ Member ${uid} was removed by host`, 'error');
+}
+
+// Create Meeting
 createBtn.onclick = async () => {
   isCreator = true;
   const code = Math.random().toString(36).substring(2,8).toUpperCase();
@@ -243,21 +220,33 @@ createBtn.onclick = async () => {
 joinBtn.onclick = () => {
   const roomCode = roomInput.value.trim();
   if(!roomCode) return setStatus("⚠️ Enter a room code first!", "error");
-
   if(isCreator){
-    joinMeeting(roomCode);
+    rtcJoin(roomCode);
   } else {
-    const name = prompt("Enter your name to request join:");
+    const name = prompt("Enter your name:");
     if(!name) return;
-    approvalRequests.push({ name });
+    approvalRequests.push({name, rtmUid:userRtmUid});
     updateRequestsUI();
-    setStatus(`⚠️ Join request sent for approval`, 'error');
+    setStatus("⚠️ Join request sent for approval",'error');
   }
 };
 
-// Leave button
-leaveBtn.onclick = leaveMeeting;
+// Leave Meeting
+async function leaveMeeting(){
+  setStatus("Leaving meeting...");
+  for(let track of Object.values(localTracks)){ if(track){ track.stop(); track.close(); } }
+  await client.leave();
+  if(rtmClient) await rtmClient.logout();
+  videoContainer.innerHTML='';
+  localTracks={videoTrack:null,audioTrack:null};
+  localPlayer=null;
+  joinBtn.disabled=false;
+  createBtn.disabled=false;
+  leaveBtn.disabled=true;
+  setStatus("👋 You left the meeting","success");
+}
 
+leaveBtn.onclick=leaveMeeting;
 </script>
 </body>
 </html>
